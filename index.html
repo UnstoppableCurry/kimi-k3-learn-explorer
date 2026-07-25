@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM/CV 架构 3D 探索器</title>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+<!-- 3D 画布 -->
+<canvas id="scene"></canvas>
+
+<!-- 顶部工具栏 -->
+<header id="toolbar">
+  <div class="tb-row">
+    <h1 class="tb-title">LLM/CV 架构 3D 探索器</h1>
+    <!-- v2：模型增多，按钮排改为 optgroup 分组下拉（LLM / CV），由 main.js 按 MODEL_SPECS 动态填充 -->
+    <select id="modelSelect" class="model-select" aria-label="模型切换"></select>
+  </div>
+  <!-- v2 第二行：阶段切换 / 对比 / 采样；ENGINE 新 API 缺失时对应组整体隐藏 -->
+  <div class="tb-row tb-v2">
+    <div class="ctl-group" id="stageGroup" role="group" aria-label="阶段切换">
+      <span class="group-label">阶段</span>
+      <button id="btnStageInfer" class="ctl-btn seg active">推理</button>
+      <button id="btnStageTrain" class="ctl-btn seg">训练</button>
+      <span class="sub-tabs v2-hidden" id="stageSubTabs">
+        <button class="ctl-btn seg sub active" data-stage="pretrain">预训练</button>
+        <button class="ctl-btn seg sub" data-stage="sft">SFT</button>
+        <button class="ctl-btn seg sub" data-stage="rl">RL</button>
+        <button class="ctl-btn" id="btnTrainPlay" title="顺序播放三阶段训练时间线">▶ 播放训练</button>
+      </span>
+    </div>
+    <div class="ctl-group" id="compareGroup" role="group" aria-label="模型对比">
+      <span class="group-label">对比</span>
+      <button id="btnCompare" class="ctl-btn toggle">⊕ 对比</button>
+      <select id="compareSelect" class="mini-select v2-hidden" aria-label="对比对象"></select>
+    </div>
+    <div class="ctl-group" id="samplerGroup" role="group" aria-label="采样控制">
+      <span class="group-label">采样</span>
+      <label class="slider-label">温度
+        <input type="range" id="sldTemp" min="0.1" max="2.0" step="0.05" value="1.0">
+        <span class="slider-val" id="valTemp">1.00</span>
+      </label>
+      <label class="slider-label">top-p
+        <input type="range" id="sldTopP" min="0.1" max="1.0" step="0.05" value="1.0">
+        <span class="slider-val" id="valTopP">1.00</span>
+      </label>
+    </div>
+  </div>
+  <div class="tb-row tb-controls">
+    <div class="btn-group" role="group" aria-label="旅程控制">
+      <button id="btnTourPlay"  class="ctl-btn" title="播放导览">▶ 播放</button>
+      <button id="btnTourPause" class="ctl-btn" title="暂停 / 继续" disabled>⏸ 暂停</button>
+      <button id="btnTourStep"  class="ctl-btn" title="单步">⏭ 单步</button>
+      <button id="btnTourStop"  class="ctl-btn" title="停止" disabled>⏹ 停止</button>
+    </div>
+    <div class="btn-group" role="group" aria-label="视图模式">
+      <button id="btnViewFull" class="ctl-btn toggle" title="全景塔：完整渲染全部 N 层权重">▦ 全景塔</button>
+      <button id="btnViewDetail" class="ctl-btn toggle" title="细节：3 个 Block 精细结构">▤ 细节</button>
+    </div>
+    <div class="btn-group" role="group" aria-label="视图控制">
+      <button id="btnFlow" class="ctl-btn toggle" title="粒子流开关">✦ 粒子流</button>
+      <button id="btnCamReset" class="ctl-btn" title="复位视角">⌂ 复位视角</button>
+    </div>
+    <div class="btn-group" role="group" aria-label="数据流演示">
+      <span class="group-label">演示</span>
+      <button class="ctl-btn" data-fx="tokenize" title="整句 → token 立方体">分词</button>
+      <button class="ctl-btn" data-fx="rope" title="RoPE 旋转位置编码">位置编码</button>
+      <button class="ctl-btn" data-fx="gate" title="路由打分 → 选 16 专家">门控</button>
+      <button class="ctl-btn" data-fx="aggregate" title="专家输出加权求和">聚合</button>
+      <button class="ctl-btn" data-fx="sample" title="按温度/top-p 真选一次">采样</button>
+      <button class="ctl-btn" data-fx="autoregress" title="新 token 回到输入端">自回归</button>
+      <button id="btnTokPrev" class="ctl-btn" title="回退一个 token（逐 token 数值流）">⟵ token</button>
+      <button id="btnTokNext" class="ctl-btn" title="推进一个 token（逐 token 数值流）">token ⟶</button>
+    </div>
+  </div>
+</header>
+
+<!-- 右侧讲解面板 -->
+<aside id="panel" aria-live="polite">
+  <div id="panelBody" class="panel-body"></div>
+</aside>
+
+<!-- 面包屑：pipeline 位置感 -->
+<div id="crumb" aria-live="polite"></div>
+
+<!-- 底部字幕条 -->
+<div id="subtitleBar" class="hidden">
+  <p id="subtitleText"></p>
+  <button id="subtitleClose" title="关闭字幕">×</button>
+</div>
+
+<!-- 契约加载顺序：three → engine → models(schema 在前) → content → main -->
+<script src="js/three.min.js"></script>
+<script src="js/engine/renderer.js"></script>
+<script src="js/engine/camera.js"></script>
+<script src="js/engine/picking.js"></script>
+<script src="js/engine/flow.js"></script>
+<script src="js/engine/scene-builder.js"></script>
+<script src="js/engine/tour.js"></script>
+<script src="js/engine/pipeline.js"></script>
+<script src="js/engine/numbers.js"></script>
+<script src="js/engine/fulltower.js"></script>
+<script src="js/models/schema.js"></script>
+<script src="js/models/kimi-k3.js"></script>
+<script src="js/models/kimi-k2.js"></script>
+<script src="js/models/kimi-k15.js"></script>
+<script src="js/models/glm-52.js"></script>
+<script src="js/models/minimax-m3.js"></script>
+<script src="js/models/deepseek-v4.js"></script>
+<script src="js/models/deepseek-v3.js"></script>
+<script src="js/models/qwen3.js"></script>
+<script src="js/models/llama3.js"></script>
+<script src="js/models/gpt2.js"></script>
+<script src="js/models/gpt3.js"></script>
+<script src="js/models/bert.js"></script>
+<script src="js/models/transformer2017.js"></script>
+<script src="js/models/rwkv.js"></script>
+<script src="js/models/yolov8seg.js"></script>
+<script src="js/models/sam.js"></script>
+<script src="js/models/deepseek-ocr.js"></script>
+<script src="js/content/components.js"></script>
+<script src="js/content/tour.js"></script>
+<script src="js/content/models.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
