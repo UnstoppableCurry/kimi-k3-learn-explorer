@@ -34,7 +34,7 @@ window.CORE_RENDERER = {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.28;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.renderer = renderer;

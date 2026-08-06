@@ -24,6 +24,8 @@ window.CORE_CAMERA = {
   DAMP: 8,          // 阻尼系数（越大越跟手）
   MIN_R: 2, MAX_R: 90,
   MIN_PHI: 0.08, MAX_PHI: Math.PI - 0.08,
+  MOVE_SPEED: 8,    // WASD 移动速度（单位/秒）
+  _keys: {},        // 当前按下的键
 
   init: function (opts) {
     opts = opts || {};

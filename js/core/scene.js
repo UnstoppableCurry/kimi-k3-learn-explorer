@@ -15,7 +15,7 @@ window.CORE_SCENE = {
     scene.fog = new THREE.Fog(0x0a0d13, 55, 140);
 
     // 半球环境光：天空微蓝 / 地面微暖，给暗部一点层次
-    var hemi = new THREE.HemisphereLight(0x8ea6c8, 0x1a1410, 0.55);
+    var hemi = new THREE.HemisphereLight(0x9db6dd, 0x241c12, 0.8);
     scene.add(hemi);
 
     // 主光（key）：暖白，右上前方，唯一投影光源
@@ -34,12 +34,12 @@ window.CORE_SCENE = {
     scene.add(key);
 
     // 补光（fill）：冷色，左侧，压暗部对比
-    var fill = new THREE.DirectionalLight(0x6f8fc0, 0.5);
+    var fill = new THREE.DirectionalLight(0x6f8fc0, 0.7);
     fill.position.set(-16, 8, 6);
     scene.add(fill);
 
     // 轮廓光（rim）：背后上方，把物体从背景里勾出来
-    var rim = new THREE.DirectionalLight(0x9fc0ff, 0.9);
+    var rim = new THREE.DirectionalLight(0x9fc0ff, 1.3);
     rim.position.set(-4, 14, -18);
     scene.add(rim);
 
