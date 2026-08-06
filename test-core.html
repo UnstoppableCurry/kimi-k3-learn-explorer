@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Core/UI 模块独立测试 — Token + 权重矩阵 + 数据流</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a0d13}
+  #scene{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #hint{position:fixed;left:20px;top:16px;color:#5f6f8c;z-index:30;
+    font:12px/1.7 -apple-system,"PingFang SC",sans-serif;letter-spacing:.03em;
+    pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="hint">拖拽旋转 · 滚轮缩放 · 右键平移 · 点击小球查看 embedding</div>
+
+<script src="js/three.min.js"></script>
+<script src="js/core/scene.js"></script>
+<script src="js/core/camera.js"></script>
+<script src="js/core/renderer.js"></script>
+<script src="js/ui/panel.js"></script>
+<script src="js/ui/controls.js"></script>
+<script>
+// ─── 装配 core 模块 ───
+var canvas = document.getElementById('scene');
+var scene    = CORE_SCENE.init();
+var camera   = CORE_CAMERA.init({ domElement: canvas });
+var renderer = CORE_RENDERER.init({ canvas: canvas, scene: scene, camera: camera });
+
+// ─── 演示内容：真实 3D 结构（token 球 + embedding 向量 + 权重热力图 + 粒子流）───
+var TOKENS = ['你', '好', '，', '世', '界'];
+var DIM = 8;
+var tokenGroup = new THREE.Group();
+scene.add(tokenGroup);
+
+// 伪随机但确定的 embedding（seed 固定，便于截图复现）
+function embedding(seed) {
+  var v = [], s = seed * 7919 + 13;
+  for (var i = 0; i < DIM; i++) {
+    s = (s * 16807) % 2147483647;
+    v.push((s / 2147483647) * 2 - 1);
+  }
+  return v;
+}
+
+var sphereGeo = new THREE.SphereGeometry(0.5, 48, 32);
+var tokenMeshes = [];
+var arrows = [];
+
+TOKENS.forEach(function (text, i) {
+  var hue = i / TOKENS.length;
+  var color = new THREE.Color().setHSL(hue, 0.65, 0.58);
+  var mat = new THREE.MeshStandardMaterial({
+    color: color, roughness: 0.32, metalness: 0.15,
+    emissive: color.clone().multiplyScalar(0.12)
+  });
+  var m = new THREE.Mesh(sphereGeo, mat);
+  m.position.set((i - (TOKENS.length - 1) / 2) * 3.2, 2.2, 0);
+  m.castShadow = true;
+  m.userData = { text: text, embedding: embedding(i + 1), index: i };
+  tokenGroup.add(m);
+  tokenMeshes.push(m);
+
+  // embedding 向量：从小球出发的 3D 箭头（取前 3 维投影 + 长度 = 向量范数）
+  var e = m.userData.embedding;
+  var dir = new THREE.Vector3(e[0], Math.abs(e[1]) + 0.35, e[2]).normalize();
+  var norm = Math.sqrt(e.reduce(function (a, b) { return a + b * b; }, 0));
+  var arrow = new THREE.ArrowHelper(dir, m.position.clone(), norm * 1.4, color.getHex(), 0.45, 0.22);
+  arrow.line.material.linewidth = 2;
+  tokenGroup.add(arrow);
+  arrows.push(arrow);
+});
+
+// 球下方的文字标签（canvas sprite）
+function makeLabel(text, fontPx) {
+  var px = fontPx || 64;
+  var c = document.createElement('canvas');
+  var ctx0 = c.getContext('2d');
+  ctx0.font = '600 ' + px + 'px "PingFang SC", sans-serif';
+  var tw = Math.ceil(ctx0.measureText(text).width) + 24;
+  c.width = tw; c.height = px + 32;
+  var ctx = c.getContext('2d');
+  ctx.font = '600 ' + px + 'px "PingFang SC", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#dfe6f2';
+  ctx.fillText(text, c.width / 2, c.height / 2);
+  var tex = new THREE.CanvasTexture(c);
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  var h = 0.8;
+  sp.scale.set(h * c.width / c.height, h, 1);
+  return sp;
+}
+tokenMeshes.forEach(function (m) {
+  var sp = makeLabel(m.userData.text);
+  sp.position.copy(m.position).add(new THREE.Vector3(0, -1.05, 0));
+  tokenGroup.add(sp);
+});
+
+// 权重矩阵热力图平面（8×8，红=高权重，蓝=低权重）
+var MAT_N = 8, heatCanvas = document.createElement('canvas');
+heatCanvas.width = MAT_N; heatCanvas.height = MAT_N;
+var hctx = heatCanvas.getContext('2d');
+var weights = [];
+for (var r = 0; r < MAT_N; r++) {
+  weights.push([]);
+  for (var c2 = 0; c2 < MAT_N; c2++) {
+    var w = Math.exp(-Math.abs(r - c2) / 2.2) * (0.55 + 0.45 * Math.sin(r * 3.1 + c2 * 1.7) ** 2);
+    weights[r].push(w);
+    var t = Math.min(1, w);
+    // 蓝 → 黑 → 红 色带
+    var rr = Math.round(255 * Math.max(0, t * 1.6 - 0.5));
+    var bb = Math.round(255 * Math.max(0, 0.6 - t * 1.4));
+    hctx.fillStyle = 'rgb(' + rr + ',12,' + bb + ')';
+    hctx.fillRect(c2, r, 1, 1);
+  }
+}
+var heatTex = new THREE.CanvasTexture(heatCanvas);
+heatTex.magFilter = THREE.NearestFilter;
+var heat = new THREE.Mesh(
+  new THREE.PlaneGeometry(6.4, 6.4),
+  new THREE.MeshStandardMaterial({ map: heatTex, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide })
+);
+heat.position.set(0, 3.2, -7.5);
+heat.rotation.x = -0.18;
+heat.castShadow = true;
+scene.add(heat);
+
+// 热力图边框 + 标题
+var frame = new THREE.LineSegments(
+  new THREE.EdgesGeometry(heat.geometry),
+  new THREE.LineBasicMaterial({ color: 0x4a5a78 })
+);
+frame.position.copy(heat.position); frame.rotation.copy(heat.rotation);
+scene.add(frame);
+var heatLabel = makeLabel('attention 权重矩阵');
+heatLabel.position.set(0, 7.2, -7.5);
+heatLabel.scale.multiplyScalar(2.2);
+scene.add(heatLabel);
+
+// 数据流粒子：沿 embedding 箭头方向循环流动的小亮点
+var FLOW_N = 120;
+var flowGeo = new THREE.BufferGeometry();
+var flowPos = new Float32Array(FLOW_N * 3);
+var flowState = [];
+for (var p = 0; p < FLOW_N; p++) {
+  flowState.push({ token: p % TOKENS.length, t: Math.random(), speed: 0.25 + Math.random() * 0.3 });
+}
+flowGeo.setAttribute('position', new THREE.BufferAttribute(flowPos, 3));
+var flow = new THREE.Points(flowGeo, new THREE.PointsMaterial({
+  color: 0xfff4cf, size: 0.14, transparent: true, opacity: 0.95,
+  blending: THREE.AdditiveBlending, depthWrite: false
+}));
+scene.add(flow);
+
+function updateFlow(delta) {
+  for (var p = 0; p < FLOW_N; p++) {
+    var st = flowState[p];
+    if (playing) st.t += st.speed * delta;
+    if (st.t > 1) { st.t -= 1; st.token = (st.token + 1) % TOKENS.length; }
+    var arrow = arrows[st.token];
+    var origin = tokenMeshes[st.token].position;
+    var d = arrow.userData_dir; // 缓存的箭头方向
+    flowPos[p * 3]     = origin.x + d.x * st.t * arrow.userData_len;
+    flowPos[p * 3 + 1] = origin.y + d.y * st.t * arrow.userData_len;
+    flowPos[p * 3 + 2] = origin.z + d.z * st.t * arrow.userData_len;
+  }
+  flowGeo.attributes.position.needsUpdate = true;
+}
+// 给箭头缓存方向与长度
+arrows.forEach(function (a, i) {
+  var e = tokenMeshes[i].userData.embedding;
+  var d = new THREE.Vector3(e[0], Math.abs(e[1]) + 0.35, e[2]).normalize();
+  a.userData_dir = d;
+  a.userData_len = Math.sqrt(e.reduce(function (x, b) { return x + b * b; }, 0)) * 1.4;
+});
+
+// ─── 装配 UI 模块 ───
+UI_PANEL.init();
+
+var playing = false;
+UI_CONTROLS.init({
+  onPlay:  function () { playing = true; },
+  onPause: function () { playing = false; },
+  onStep:  function () {
+    flowState.forEach(function (st) { st.t = Math.min(1, st.t + st.speed * 0.12); });
+  },
+  onReset: function () {
+    playing = false;
+    CORE_CAMERA.reset();
+    UI_PANEL.hide();
+    flowState.forEach(function (st) { st.t = Math.random(); });
+  }
+});
+
+// 点击小球 → 面板显示真实 embedding 数据
+var raycaster = new THREE.Raycaster();
+var pointer = new THREE.Vector2();
+var downAt = null;
+canvas.addEventListener('pointerdown', function (e) { downAt = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', function (e) {
+  if (!downAt) return;
+  var moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
+  downAt = null;
+  if (moved > 5) return; // 拖拽不算点击
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  var hits = raycaster.intersectObjects(tokenMeshes);
+  if (hits.length) {
+    var u = hits[0].object.userData;
+    CORE_CAMERA.focus(hits[0].object);
+    UI_PANEL.show({
+      title: 'Token「' + u.text + '」',
+      subtitle: 'position ' + u.index + ' · dim ' + u.embedding.length,
+      text: '小球是 token，箭头是它的 embedding 向量（前 3 维定向，长度 = 向量范数），粒子流表示数据沿向量流动。',
+      rows: [
+        { label: '‖e‖ 范数', value: Math.sqrt(u.embedding.reduce(function (a, b) { return a + b * b; }, 0)).toFixed(4) }
+      ],
+      bars: u.embedding.map(function (v, i) { return { label: 'e[' + i + ']', value: Math.abs(v) }; })
+    });
+  } else {
+    UI_PANEL.hide();
+  }
+});
+
+// ─── 渲染循环 ───
+var last = performance.now();
+function tick(now) {
+  var delta = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  CORE_CAMERA.update(delta);
+  updateFlow(delta);
+  CORE_RENDERER.update(delta);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// 测试钩子：供 Playwright 断言
+window.__TEST__ = {
+  ready: true,
+  modules: ['CORE_SCENE', 'CORE_CAMERA', 'CORE_RENDERER', 'UI_PANEL', 'UI_CONTROLS'].map(function (n) {
+    var m = window[n];
+    return n + ':' + ['init', 'show', 'hide', 'update', 'dispose', 'screenshot'].every(function (k) {
+      return m && typeof m[k] === 'function';
+    });
+  }),
+  showPanel: function () { UI_PANEL.show({ title: '测试面板', bars: [{ label: 'e[0]', value: 0.7 }] }); }
+};
+</script>
+</body>
+</html>

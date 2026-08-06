@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MoE 模块独立测试</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070d; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 14px; bottom: 12px; color: #8ea3c2;
+    font: 12px/1.6 -apple-system, "PingFang SC", sans-serif; opacity: .8;
+  }
+</style>
+</head>
+<body>
+<div id="hud">MoE 模块独立测试 · window.MOE · 路由分数 → 专家选择 → 专家输出 → 加权聚合</div>
+<script src="js/three.min.js"></script>
+<script src="js/modules/moe.js"></script>
+<script>
+(function () {
+  // ── 渲染器：阴影 + 色调映射 ──
+  var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  document.body.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070d);
+  scene.fog = new THREE.Fog(0x05070d, 30, 70);
+
+  var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+
+  // ── 光照：主光(投影) + 补光 + 环境 ──
+  var key = new THREE.DirectionalLight(0xfff2e0, 1.6);
+  key.position.set(6, 14, 8);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.left = -18; key.shadow.camera.right = 18;
+  key.shadow.camera.top = 14;   key.shadow.camera.bottom = -14;
+  key.shadow.bias = -0.0004;
+  scene.add(key);
+  var fill = new THREE.DirectionalLight(0x4a6cff, 0.6);
+  fill.position.set(-10, 6, -8);
+  scene.add(fill);
+  scene.add(new THREE.AmbientLight(0x3d4c6e, 0.75));
+  var rim = new THREE.PointLight(0xffb36b, 0.6, 40);
+  rim.position.set(8, 5, -6);
+  scene.add(rim);
+
+  // ── 模块 ──
+  MOE.init(scene, camera, renderer);
+  MOE.show(); // 使用内置演示数据：8 专家 / top-2 路由
+
+  // 数据流特写机位（截图 2 用）：?view=flow
+  if (location.search.indexOf('view=flow') >= 0) {
+    camera.position.set(6.2, 4.5, 9.5);
+    camera.lookAt(5.2, 0, 0);
+  }
+
+  window.addEventListener('resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  var last = performance.now();
+  function loop(now) {
+    var delta = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    MOE.update(delta);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // 给截图脚本用：渲染若干帧后置位
+  setTimeout(function () { window.__READY = true; }, 2500);
+})();
+</script>
+</body>
+</html>

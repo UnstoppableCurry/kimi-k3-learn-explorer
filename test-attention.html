@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Attention 模块独立测试</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0d13; }
+  canvas { display: block; }
+  #hint {
+    position: fixed; left: 12px; bottom: 10px; color: #55607a;
+    font: 12px -apple-system, "PingFang SC", sans-serif; user-select: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="hint">attention.js 独立测试 · 拖拽旋转 / 滚轮缩放</div>
+<script src="js/three.min.js"></script>
+<script src="js/modules/attention.js"></script>
+<script>
+(function () {
+  var canvas = document.getElementById('scene');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0d13);
+  scene.fog = new THREE.Fog(0x0a0d13, 30, 60);
+
+  var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera.position.set(11.5, 8, 17);
+  camera.lookAt(0, 1.2, -1);
+
+  // 极简轨道控制（不依赖 OrbitControls 外部文件）
+  var drag = null;
+  var sph = new THREE.Spherical().setFromVector3(camera.position.clone().sub(new THREE.Vector3(0, 1.2, -1)));
+  var target = new THREE.Vector3(0, 1.2, -1);
+  function applyCam() {
+    camera.position.setFromSpherical(sph).add(target);
+    camera.lookAt(target);
+  }
+  canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY }; });
+  window.addEventListener('pointerup', function () { drag = null; });
+  window.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    sph.theta -= (e.clientX - drag.x) * 0.005;
+    sph.phi = Math.max(0.15, Math.min(1.5, sph.phi - (e.clientY - drag.y) * 0.005));
+    drag = { x: e.clientX, y: e.clientY };
+    applyCam();
+  });
+  canvas.addEventListener('wheel', function (e) {
+    sph.radius = Math.max(6, Math.min(45, sph.radius + e.deltaY * 0.02));
+    applyCam();
+  }, { passive: true });
+
+  // 初始化模块并展示（真实 token 输入）
+  ATTENTION_MODULE.init(scene, camera, renderer);
+  ATTENTION_MODULE.show({
+    tokens: ['你', '好', '，', '世', '界', '！', '今', '天'].map(function (t, i) {
+      return { id: i, text: t, position: i };
+    })
+  });
+  console.log('outputData keys:', Object.keys(ATTENTION_MODULE.outputData).join(','));
+  console.log('weights row sum:', ATTENTION_MODULE.outputData.weights[7].reduce(function (a, b) { return a + b; }, 0).toFixed(6));
+
+  var clock = new THREE.Clock();
+  var frames = 0;
+  function loop() {
+    requestAnimationFrame(loop);
+    ATTENTION_MODULE.update(clock.getDelta());
+    renderer.render(scene, camera);
+    if (++frames === 30) window.__READY = true; // 截图脚本等待此标志
+  }
+  loop();
+
+  window.addEventListener('resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>FFN 模块独立测试</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0c0f16; overflow: hidden; }
+  canvas { display: block; }
+  #hud { position: fixed; left: 12px; top: 10px; color: #9fb4d8; font: 13px -apple-system, "PingFang SC", sans-serif; }
+</style>
+</head>
+<body>
+<div id="hud">FFN 模块测试 · x → GELU(W₁x+b₁) → y</div>
+<script src="js/three.min.js"></script>
+<script src="js/modules/ffn.js"></script>
+<script>
+  var renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  document.body.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0c0f16);
+  scene.fog = new THREE.Fog(0x0c0f16, 30, 70);
+
+  var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera.position.set(0, 4.5, 21);
+  camera.lookAt(0, 0, 0);
+
+  FFN.init(scene, camera, renderer);
+
+  // 真实感数据：模拟 d_model=2048 → hidden=8192 → 2048（模块内部抽样显示）
+  function randVec(n, s) {
+    var v = [];
+    for (var i = 0; i < n; i++) v.push((Math.sin(i * 12.9898) * 43758.5453 % 1) * s);
+    return v;
+  }
+  var dInput = randVec(2048, 1);
+  var dHidden = randVec(8192, 1).map(function (v) { return Math.max(0, v * 1.6); }); // GELU 后大量近零
+  var dOutput = randVec(2048, 0.8);
+  FFN.show({ input: dInput, hidden: dHidden, output: dOutput });
+
+  window.addEventListener('resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  var last = performance.now();
+  function loop(now) {
+    var delta = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    FFN.update(delta);
+    // 缓慢环绕，增强 3D 沉浸感
+    var t = now / 1000 * 0.04;
+    camera.position.x = Math.sin(t) * 23;
+    camera.position.z = Math.cos(t) * 23;
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>
