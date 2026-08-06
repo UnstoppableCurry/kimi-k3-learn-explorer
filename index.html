@@ -3,40 +3,54 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kimi K3 架构 3D 探索器</title>
+<title>Kimi K3 · 一个 token 的旅程</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     width: 100vw; height: 100vh; overflow: hidden;
-    background: #0a0a0f; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0d13; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   #scene { width: 100%; height: 100%; display: block; }
 
-  /* 右侧面板（默认隐藏） */
-  #panel {
-    position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
-    background: rgba(15, 15, 25, 0.95); backdrop-filter: blur(30px);
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-    transition: right 0.3s ease; z-index: 200;
-    overflow-y: auto; padding: 24px;
-  }
-  #panel.open { right: 0; }
-  #panelClose {
-    position: absolute; top: 16px; right: 16px;
-    width: 32px; height: 32px; border-radius: 50%;
-    border: none; background: rgba(255, 255, 255, 0.1);
-    color: #fff; font-size: 18px; cursor: pointer;
-  }
-
-  /* 标题 */
   #title {
-    position: fixed; top: 24px; left: 24px; z-index: 100;
-    color: #fff; font-size: 18px; font-weight: 600;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    position: fixed; top: 22px; left: 24px; z-index: 100;
+    color: #fff; font-size: 17px; font-weight: 600;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
   }
   #subtitle {
-    position: fixed; top: 52px; left: 24px; z-index: 100;
-    color: rgba(255, 255, 255, 0.6); font-size: 14px;
+    position: fixed; top: 48px; left: 24px; z-index: 100;
+    color: rgba(255, 255, 255, 0.5); font-size: 12.5px;
+  }
+
+  /* 底部字幕：当前阶段 + 真实数字 */
+  #stageBox {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    z-index: 100; max-width: 72vw; text-align: center; pointer-events: none;
+  }
+  #stageTitle {
+    color: #fff; font-size: 19px; font-weight: 600;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  }
+  #caption {
+    margin-top: 6px; color: rgba(255, 255, 255, 0.72); font-size: 14px;
+    font-family: Menlo, monospace;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+  }
+
+  /* 右下控件 */
+  #controls {
+    position: fixed; right: 20px; bottom: 22px; z-index: 200;
+    display: flex; gap: 8px; align-items: center;
+  }
+  #controls button {
+    padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(20, 24, 36, 0.8); color: #dfe4ee; font-size: 13px;
+    cursor: pointer; backdrop-filter: blur(10px);
+  }
+  #controls button:hover { background: rgba(40, 48, 70, 0.9); }
+  #controls label {
+    color: rgba(255,255,255,0.65); font-size: 12.5px; cursor: pointer;
+    display: flex; gap: 4px; align-items: center; user-select: none;
   }
 </style>
 </head>
@@ -44,26 +58,25 @@
 
 <canvas id="scene"></canvas>
 
-<div id="title">Kimi K3 架构 3D 探索器</div>
-<div id="subtitle">点击组件查看详情 · 拖拽旋转 · 滚轮缩放</div>
+<div id="title">Kimi K3 · 一个 token 的旅程</div>
+<div id="subtitle">输入 → 分词 → Embedding → 61 层 → 输出 · 拖拽旋转 / 滚轮缩放（拖拽时相机跟随暂停 5 秒）</div>
 
-<div id="panel">
-  <button id="panelClose">×</button>
-  <div id="panelContent"></div>
+<div id="stageBox">
+  <div id="stageTitle"></div>
+  <div id="caption"></div>
+</div>
+
+<div id="controls">
+  <label><input type="checkbox" id="chkFollow" checked> 相机跟随</label>
+  <button id="btnPlay">⏸ 暂停</button>
+  <button id="btnRestart">↺ 重播</button>
 </div>
 
 <script src="js/three.min.js"></script>
 <script src="js/core/scene.js"></script>
 <script src="js/core/camera.js"></script>
 <script src="js/core/renderer.js"></script>
-<script src="js/modules/token.js"></script>
-<script src="js/modules/attention.js"></script>
-<script src="js/modules/ffn.js"></script>
-<script src="js/modules/moe.js"></script>
-<script src="js/modules/output.js"></script>
-<script src="js/modules/training.js"></script>
-<script src="js/ui/panel.js"></script>
-<script src="js/ui/controls.js"></script>
+<script src="js/pipeline.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>
