@@ -861,7 +861,8 @@ window.PIPELINE = (function () {
   function flyTo(x, y, z, r, theta, phi) {
     if (!follow) return;
     if (clock - lastDragT < 5) return; // 用户刚拖拽过，让出控制权
-    window.CORE_CAMERA.flyTo({ x: x, y: y, z: z }, r, phi == null ? 1.12 : phi, theta == null ? 0.35 : theta);
+    // 正前方视角：theta=0（正对），phi=π/2（水平）
+    window.CORE_CAMERA.flyTo({ x: x, y: y, z: z }, r, phi == null ? Math.PI / 2 : phi, theta == null ? 0 : theta);
   }
 
   function caption(title, detail) {
@@ -905,7 +906,7 @@ window.PIPELINE = (function () {
       enter: function () {
         caption('Kimi K3：一个 token 的完整旅程',
           '输入 → 分词 → Embedding → 61 层（此处展示 4 层，每层内含注意力 + MoE 完整结构）→ 输出 · d=8 教学维度，数字全部为真实前向计算');
-        flyTo(12, 2.5, 0, 54, 0.65, 1.22);
+        flyTo(12, 2.5, 0, 54, 0, Math.PI / 2);
       },
       tick: function () {}
     },
@@ -913,7 +914,7 @@ window.PIPELINE = (function () {
       dur: 3.5,
       enter: function () {
         caption('① 输入：「' + SENT + '」', '8 个字符进入网络');
-        flyTo(X.input, 3, 0, 10, 0.3);
+        flyTo(X.input, 3, 0, 10, 0, Math.PI / 2);
       },
       tick: function (p) {
         for (var i = 0; i < S.charTiles.length; i++) {
@@ -927,7 +928,7 @@ window.PIPELINE = (function () {
       enter: function () {
         caption('② 分词：字符 → token id',
           '「' + SENT[journey.step] + '」= id ' + IDS[journey.step] + '（词表 16 万中查到的编号）');
-        flyTo(X.tokenizer, 3, 0, 10, 0.3);
+        flyTo(X.tokenizer, 3, 0, 10, 0, Math.PI / 2);
       },
       tick: function (p) {
         for (var i = 0; i < S.idTiles.length; i++) {
@@ -942,7 +943,7 @@ window.PIPELINE = (function () {
         var x = journey.x0;
         caption('③ Embedding 查表：id ' + IDS[journey.step] + ' → 8 维向量',
           'E[' + IDS[journey.step] + '] = ' + vecShort(x, 4) + ' · 主角 token「' + SENT[journey.step] + '」获得向量本体');
-        flyTo(X.embed, 3, 0.6, 11, 0.3);
+        flyTo(X.embed, 3, 0.6, 11, 0, Math.PI / 2);
         setEmbedBoard([
           { t: 'E[' + IDS[journey.step] + '] =（查表命中）', c: ACCENT.dim },
           { t: '[' + x.map(function (v) { return fmt(v, 1); }).join(' ') + ']', c: ACCENT.input },
@@ -964,7 +965,7 @@ window.PIPELINE = (function () {
       enter: function () {
         caption('④ …同样的层再重复 57 次（共 ' + LAYERS_TOTAL + ' 层）…',
           '每一层都是：注意力 + MoE + 残差，向量被一层层精炼');
-        flyTo(X.deep, 3.4, 0, 9, 0.3);
+        flyTo(X.deep, 3.4, 0, 9, 0, Math.PI / 2);
       },
       tick: function (p) {
         var x = X.layers[3] + (X.deep - X.layers[3]) * ease(p);
@@ -977,7 +978,7 @@ window.PIPELINE = (function () {
       enter: function () {
         caption('⑤ 输出头：logits → softmax → top-p 采样',
           '向量与词表投影相乘，得到每个候选字的分数');
-        flyTo(X.output, 3.4, 0, 13, 0.3);
+        flyTo(X.output, 3.4, 0, 13, 0, Math.PI / 2);
         S.deepGlow.material.opacity = 0.22;
       },
       tick: function (p) {
@@ -1061,7 +1062,7 @@ window.PIPELINE = (function () {
         );
         // 第一机位：前舱注意力特写
         flipped = false;
-        flyTo(lx - 0.5, 3.0, 2.6, 8.0, 0.22, 1.05);
+        flyTo(lx - 0.5, 3.0, 2.6, 8.0, 0, Math.PI / 2);
         // 本层复位后点亮；其余层保持上一状态（结构 + 数据常驻）
         resetLayerVisual(l);
         S.layers.forEach(function (r2, i) {
@@ -1116,7 +1117,7 @@ window.PIPELINE = (function () {
         // 0.50：相机绕到后舱 —— 进入 MoE 段落
         if (p >= 0.50 && !flipped) {
           flipped = true;
-          flyTo(lx + 1.0, 3.2, -2.2, 13.0, Math.PI - 0.22, 1.08);
+          flyTo(lx + 1.0, 3.2, -2.2, 13.0, Math.PI, Math.PI / 2);
         }
 
         // 0.52-0.70：router top-16 权重条长出
