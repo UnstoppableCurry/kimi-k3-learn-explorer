@@ -52,6 +52,32 @@
     color: rgba(255,255,255,0.65); font-size: 12.5px; cursor: pointer;
     display: flex; gap: 4px; align-items: center; user-select: none;
   }
+  #controls input[type=range] {
+    width: 96px; accent-color: #ffb84d; cursor: pointer;
+  }
+  #speedVal {
+    color: #ffd9a0; font-family: Menlo, monospace; font-size: 12px;
+    min-width: 30px; text-align: right;
+  }
+
+  /* 阶段导航：可点击跳转，当前阶段高亮 */
+  #stageNav {
+    position: fixed; left: 50%; bottom: 108px; transform: translateX(-50%);
+    z-index: 150; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    max-width: 86vw;
+  }
+  #stageNav .chip {
+    padding: 5px 11px; border-radius: 14px; font-size: 12px; cursor: pointer;
+    color: rgba(255,255,255,0.55); background: rgba(18, 22, 34, 0.72);
+    border: 1px solid rgba(255,255,255,0.10); backdrop-filter: blur(8px);
+    transition: all 0.25s; user-select: none;
+  }
+  #stageNav .chip:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+  #stageNav .chip.active {
+    color: #1a1206; background: #ffb84d; border-color: #ffb84d;
+    font-weight: 600; box-shadow: 0 0 14px rgba(255, 184, 77, 0.45);
+  }
+  #stageNav .chip.done { color: rgba(255, 209, 102, 0.75); border-color: rgba(255, 209, 102, 0.3); }
 </style>
 </head>
 <body>
@@ -61,13 +87,21 @@
 <div id="title">Kimi K3 · 一个 token 的旅程</div>
 <div id="subtitle">输入 → 分词 → Embedding → 61 层 → 输出 · 拖拽旋转 / 滚轮缩放 / WASD+QE 移动</div>
 
+<div id="stageNav"></div>
+
 <div id="stageBox">
   <div id="stageTitle"></div>
   <div id="caption"></div>
 </div>
 
 <div id="controls">
+  <label title="WASD 移动速度（单位/秒）">速度
+    <input type="range" id="speedRange" min="0.5" max="10" step="0.5" value="2">
+    <span id="speedVal">2.0</span>
+  </label>
   <label><input type="checkbox" id="chkFollow" checked> 相机跟随</label>
+  <button id="btnPrev">◀ 上一步</button>
+  <button id="btnNext">下一步 ▶</button>
   <button id="btnPlay">⏸ 暂停</button>
   <button id="btnRestart">↺ 重播</button>
 </div>

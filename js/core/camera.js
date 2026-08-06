@@ -119,6 +119,11 @@ window.CORE_CAMERA = {
     this._goal = JSON.parse(JSON.stringify(this._home));
   },
 
+  /** 设置 WASD/QE 移动速度（单位/秒），范围 0.5 - 10 */
+  setMoveSpeed: function (v) {
+    this.MOVE_SPEED = Math.max(0.5, Math.min(10, v));
+  },
+
   _apply: function (s) {
     var sinPhi = Math.sin(s.phi);
     this.camera.position.set(

@@ -232,9 +232,10 @@ window.PIPELINE = (function () {
   var S = { // 场景对象注册表
     scene: null, root: null,
     charTiles: [], idTiles: [],
-    tokenG: null, tokenVg: null, tokenLabel: null,
+    tokenG: null, tokenVg: null, tokenLabel: null, tokenHalo: null,
     layers: [],               // 每层的完整内部结构（见 buildLayers）
-    outBars: [], outLabels: [],
+    outBars: [], outLabels: [], outPcts: [],
+    beams: [], bases: [],
     embedBoard: null, infoPanel: null, sampledSprite: null, deepGlow: null,
     activeLight: null
   };
@@ -279,8 +280,96 @@ window.PIPELINE = (function () {
     }
   }
 
+  // 动态文字标签：可在运行时改文字（复用同一块 canvas，文字没变就不重绘）
+  function makeDynLabel(text, opts) {
+    opts = opts || {};
+    var size = opts.fontSize || 40;
+    var c = document.createElement('canvas');
+    var font = '600 ' + size + 'px Menlo, -apple-system, monospace';
+    function draw(t) {
+      var g = c.getContext('2d');
+      g.font = font;
+      var tw = Math.ceil(g.measureText(t).width);
+      if (c.width < tw + 24) c.width = tw + 24;
+      c.height = size + 20;
+      g = c.getContext('2d');
+      g.clearRect(0, 0, c.width, c.height);
+      g.font = font; g.textBaseline = 'middle';
+      g.fillStyle = opts.color || '#ffd166';
+      g.fillText(t, 12, c.height / 2);
+    }
+    draw(text);
+    var tex = canvasTex(c);
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    var h = opts.h || 0.55;
+    sp.scale.set(h * c.width / c.height, h, 1);
+    var cur = text;
+    return {
+      sprite: sp,
+      set: function (t) {
+        if (t === cur) return;
+        cur = t;
+        draw(t);
+        tex.needsUpdate = true;
+        sp.scale.set(h * c.width / c.height, h, 1);
+      }
+    };
+  }
+
+  // 站台底座：深色金属台 + 发光描边 + 台面泛光 + 站名牌，让每个工位「落地」
+  function buildStationBase(x, w, d, colorNum, colorCss, name) {
+    var g = new THREE.Group();
+    var slab = new THREE.Mesh(
+      new THREE.BoxGeometry(w, 0.18, d),
+      new THREE.MeshStandardMaterial({ color: 0x121a29, metalness: 0.75, roughness: 0.32 })
+    );
+    slab.position.y = 0.09;
+    g.add(slab);
+    var edge = new THREE.LineSegments(
+      new THREE.EdgesGeometry(slab.geometry),
+      new THREE.LineBasicMaterial({ color: colorNum, transparent: true, opacity: 0.9 })
+    );
+    edge.position.y = 0.09;
+    g.add(edge);
+    var glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(w - 0.2, d - 0.2),
+      new THREE.MeshBasicMaterial({ color: colorNum, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = 0.19;
+    g.add(glow);
+    if (name) {
+      var plate = makeLabel(name, { h: 0.46, color: colorCss, bg: 'rgba(14,18,30,0.88)' });
+      plate.position.set(0, 0.62, d / 2 + 0.45);
+      g.add(plate);
+    }
+    g.position.x = x;
+    S.root.add(g);
+    return { group: g, edge: edge, glow: glow };
+  }
+
+  // 站间流动光轨：沿 token 行进路径连接各站
+  function buildFlowBeams() {
+    var stops = [X.input, X.tokenizer, X.embed].concat(X.layers).concat([X.deep, X.output]);
+    for (var i = 0; i < stops.length - 1; i++) {
+      var x0 = stops[i], x1 = stops[i + 1];
+      var beam = new THREE.Mesh(
+        new THREE.BoxGeometry(x1 - x0 - 1.0, 0.05, 0.05),
+        new THREE.MeshBasicMaterial({ color: 0x2f6fd0, transparent: true, opacity: 0.45 })
+      );
+      beam.position.set((x0 + x1) / 2, PATH_Y - 0.35, 0);
+      S.root.add(beam);
+      S.beams.push(beam);
+    }
+  }
+
   function buildInput() {
     addTitle('① 输入文字', X.input, 5.6, ACCENT.input);
+    S.bases.push(buildStationBase(X.input, 10.4, 3.4, 0x8f6214, ACCENT.input, '输入 · 原始字符'));
+    // 暖光把字牌照亮
+    var pl = new THREE.PointLight(0xffc46b, 0.6, 12);
+    pl.position.set(X.input, 5.0, 2.0);
+    S.root.add(pl);
     for (var i = 0; i < SENT.length; i++) {
       var t = makeTile(SENT[i]);
       t.position.set(X.input + (i - 3.5) * 1.08, PATH_Y + 1.2, 0);
@@ -292,6 +381,10 @@ window.PIPELINE = (function () {
 
   function buildTokenizer() {
     addTitle('② 分词 tokenizer', X.tokenizer, 5.6, ACCENT.input);
+    S.bases.push(buildStationBase(X.tokenizer, 10.4, 3.4, 0x8f6214, ACCENT.input, '分词 · 查词表得 id'));
+    var pl = new THREE.PointLight(0xffc46b, 0.6, 12);
+    pl.position.set(X.tokenizer, 5.0, 2.0);
+    S.root.add(pl);
     for (var i = 0; i < IDS.length; i++) {
       var t = makeTile(String(IDS[i]), { small: true, color: '#ffd9a0' });
       t.position.set(X.tokenizer + (i - 3.5) * 1.08, PATH_Y + 1.2, 0);
@@ -303,6 +396,10 @@ window.PIPELINE = (function () {
 
   function buildEmbedding() {
     addTitle('③ Embedding 查表', X.embed, 5.6, ACCENT.input);
+    S.bases.push(buildStationBase(X.embed, 9.6, 4.6, 0x8f6214, ACCENT.input, 'Embedding · id → 向量'));
+    var pl = new THREE.PointLight(0xffd9a0, 0.55, 12);
+    pl.position.set(X.embed, 5.0, 2.0);
+    S.root.add(pl);
     // 词表架：背景一块大板（Embedding 阶段会刷新成真实向量数值）
     var board = makePanel([
       { t: 'Embedding 矩阵 E', c: ACCENT.dim },
@@ -519,6 +616,21 @@ window.PIPELINE = (function () {
       grp.add(edges);
       ref.frame = frame; ref.edges = edges;
 
+      // 站台底座 + 四角发光立柱（让层像一座真正的「工作站」）
+      S.bases.push(buildStationBase(lx, 10.0, 9.4, 0x3d5a8c, '#9fc6ff', null));
+      ref.postMats = [];
+      var postGeo = new THREE.BoxGeometry(0.14, 6.4, 0.14);
+      [[-4.8, -4.5], [-4.8, 4.5], [4.8, -4.5], [4.8, 4.5]].forEach(function (c) {
+        var pm = new THREE.MeshStandardMaterial({
+          color: 0x2c4266, emissive: 0x16283f, emissiveIntensity: 1,
+          metalness: 0.65, roughness: 0.3
+        });
+        var p = new THREE.Mesh(postGeo, pm);
+        p.position.set(c[0], 3.2, c[1]);
+        grp.add(p);
+        ref.postMats.push(pm);
+      });
+
       // 层标题 + 发光下划线
       var title = makeLabel('Layer ' + (l + 1) + ' / ' + LAYERS_TOTAL, { h: 0.72, color: '#cfe0ff' });
       title.position.set(0, 6.95, 0);
@@ -614,6 +726,7 @@ window.PIPELINE = (function () {
 
   function buildDeepGate() {
     addTitle('④ …再重复 57 层…', X.deep, 5.6, ACCENT.dim);
+    S.bases.push(buildStationBase(X.deep, 3.2, 4.2, 0x3d5a8c, '#9fc6ff', '深层 · 结构不变'));
     // 两根立柱 + 半透明门
     var post = new THREE.BoxGeometry(0.3, 6, 0.3);
     var pm = new THREE.MeshStandardMaterial({ color: 0x3a5a8f, metalness: 0.6, roughness: 0.35 });
@@ -636,6 +749,10 @@ window.PIPELINE = (function () {
 
   function buildOutput() {
     addTitle('⑤ 输出头 → 采样', X.output, 6.4, ACCENT.out);
+    S.bases.push(buildStationBase(X.output, 11.2, 3.6, 0x8f6a14, ACCENT.out, '输出 · 概率分布采样'));
+    var pl = new THREE.PointLight(0xffd166, 0.6, 14);
+    pl.position.set(X.output, 6.0, 2.5);
+    S.root.add(pl);
     // 11 个候选字的概率柱：金色金属材质
     for (var i = 0; i < OUT_CH.length; i++) {
       var b = new THREE.Mesh(
@@ -653,6 +770,12 @@ window.PIPELINE = (function () {
       lb.position.set(X.output + (i - 5) * 0.85, 0.62, 0.8);
       S.root.add(lb);
       S.outLabels.push(lb);
+      // 每根柱子上方的实时概率百分比（输出阶段逐帧刷新）
+      var pct = makeDynLabel('', { h: 0.5, color: '#ffd166' });
+      pct.sprite.position.set(X.output + (i - 5) * 0.85, 1.0, 0);
+      pct.sprite.visible = false;
+      S.root.add(pct.sprite);
+      S.outPcts.push(pct);
     }
     // 采样结果大字
     var sp = makeLabel('?', { h: 2.2, color: '#ffffff' });
@@ -671,6 +794,15 @@ window.PIPELINE = (function () {
     lb.position.set(0, 1.6, 0);
     S.tokenG.add(lb);
     S.tokenLabel = lb;
+    // 脚下光环：标记「主角」，随 token 走，呼吸脉动
+    var halo = new THREE.Mesh(
+      new THREE.RingGeometry(0.62, 0.95, 48),
+      new THREE.MeshBasicMaterial({ color: 0x6eb5ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = -PATH_Y + 0.28; // 相对 tokenG：落到世界 y≈0.28 的台面上方
+    S.tokenG.add(halo);
+    S.tokenHalo = halo;
   }
 
   // 可刷新的信息面板（每层数字详情），放到层的正上方避免遮挡内部结构
@@ -762,6 +894,7 @@ window.PIPELINE = (function () {
       ref.edges.material.color.set(0x3d5a8c);
       ref.edges.material.opacity = 0.9;
       ref.underline.material.color.set(0x4d7fc0);
+      ref.postMats.forEach(function (pm) { pm.emissive.set(0x16283f); });
     });
   }
 
@@ -870,6 +1003,16 @@ window.PIPELINE = (function () {
           var dim = pp > 0.5 && !inNucleus;
           S.outBars[i].material.color.set(dim ? 0x555a66 : 0xffd166);
           S.outBars[i].material.emissive.set(dim ? 0x14161c : 0x5a4308);
+          // 柱顶实时概率百分比：softmax 阶段起显示，随柱高浮动，核外变灰
+          var pct = S.outPcts[i];
+          if (pp > 0.05) {
+            pct.sprite.visible = true;
+            pct.set((journey.probs[i] * 100).toFixed(0) + '%');
+            pct.sprite.position.y = 0.42 + h;
+            pct.sprite.material.color.set(dim ? 0x7a7f8c : 0xffd166);
+          } else {
+            pct.sprite.visible = false;
+          }
         }
         if (p > 0.5 && p < 0.52 && !S._outCaptioned) {
           S._outCaptioned = true;
@@ -926,6 +1069,7 @@ window.PIPELINE = (function () {
           r2.edges.material.color.set(active ? 0x6ea8ff : 0x3d5a8c);
           r2.edges.material.opacity = active ? 1 : 0.9;
           r2.underline.material.color.set(active ? 0x9fc6ff : 0x4d7fc0);
+          r2.postMats.forEach(function (pm) { pm.emissive.set(active ? 0x2f5fae : 0x16283f); });
         });
         S.activeLight = ref.light;
         morphFrom = null;
@@ -1000,6 +1144,16 @@ window.PIPELINE = (function () {
   }
 
   // ---------- 旅程控制 ----------
+  var STAGE_NAMES = ['全景', '① 输入', '② 分词', '③ Embedding',
+    'Layer 1', 'Layer 2', 'Layer 3', 'Layer 4', '④ 深层 ×57', '⑤ 输出采样'];
+  var stageListener = null; // 阶段切换回调（main.js 用来高亮导航条）
+
+  function enterStage(i) {
+    stageIdx = i; stageT = 0;
+    stages[i].enter();
+    if (stageListener) stageListener(i, stages.length);
+  }
+
   function startJourney(step) {
     journey = computeJourney(step);
     // 重置可动对象
@@ -1014,12 +1168,12 @@ window.PIPELINE = (function () {
     S.charTiles.forEach(function (t) { t.scale.setScalar(0.001); });
     S.idTiles.forEach(function (t) { t.scale.setScalar(0.001); });
     S.outBars.forEach(function (b) { b.scale.y = 0.05; b.position.y = 0.3; });
+    S.outPcts.forEach(function (p) { p.sprite.visible = false; p.set(''); });
     S.sampledSprite.visible = false;
     S.sampledSprite.material.opacity = 1;
     resetAllLayers();
     clearInfoPanel();
-    stageIdx = 0; stageT = 0;
-    stages[0].enter();
+    enterStage(0);
   }
 
   var curStep = 6; // 主角从「K」开始（前面有 7 个上下文 token）
@@ -1033,21 +1187,25 @@ window.PIPELINE = (function () {
       if (st.tick) st.tick(p);
       if (stageT >= st.dur) {
         if (st.leave) st.leave();
-        stageIdx++;
-        stageT = 0;
-        if (stageIdx >= stages.length) {
+        if (stageIdx + 1 >= stages.length) {
           // 旅程结束：主角推进到下一个 token，循环
           curStep = (curStep + 1) % IDS.length;
           if (curStep === 0) curStep = 1; // 至少留 1 个上下文
           startJourney(curStep);
         } else {
-          stages[stageIdx].enter();
+          enterStage(stageIdx + 1);
         }
       }
     }
     // 主角呼吸浮动（即使暂停也有一点生命力）
     if (S.tokenG) {
       S.tokenG.position.y = PATH_Y + Math.sin(clock * 1.8) * 0.06;
+    }
+    // 主角脚下光环脉动
+    if (S.tokenHalo) {
+      S.tokenHalo.material.opacity = 0.38 + 0.18 * Math.sin(clock * 3.2);
+      var hs = 1 + 0.08 * Math.sin(clock * 3.2);
+      S.tokenHalo.scale.set(hs, hs, 1);
     }
     // 激活层的内部点光呼吸脉冲
     if (S.activeLight) {
@@ -1061,6 +1219,7 @@ window.PIPELINE = (function () {
       S.root = new THREE.Group();
       scene.add(S.root);
       buildFloorPath();
+      buildFlowBeams();
       buildInput();
       buildTokenizer();
       buildEmbedding();
@@ -1077,14 +1236,29 @@ window.PIPELINE = (function () {
     restart: function () { startJourney(curStep); },
     setFollow: function (v) { follow = v; },
     notifyUserDrag: function () { lastDragT = clock; },
-    debugGo: function (i) {
+    // 手动播放控制
+    stageNames: function () { return STAGE_NAMES; },
+    currentStage: function () { return stageIdx; },
+    setStageListener: function (fn) { stageListener = fn; },
+    goTo: function (i) {
+      i = Math.max(0, Math.min(stages.length - 1, i));
       if (stages[stageIdx].leave) stages[stageIdx].leave();
-      stageIdx = Math.max(0, Math.min(stages.length - 1, i));
-      stageT = 0;
-      stages[stageIdx].enter();
+      enterStage(i);
       // 快进一帧让 tick(0) 生效
       if (stages[stageIdx].tick) stages[stageIdx].tick(0.0001);
     },
+    next: function () {
+      if (stageIdx + 1 >= stages.length) {
+        // 最后一步再「下一步」：推进到下一个 token 的新旅程
+        curStep = (curStep + 1) % IDS.length;
+        if (curStep === 0) curStep = 1;
+        startJourney(curStep);
+      } else {
+        this.goTo(stageIdx + 1);
+      }
+    },
+    prev: function () { this.goTo(stageIdx - 1); },
+    debugGo: function (i) { this.goTo(i); },
     debugTick: function (p) { // 截图验证用：把当前阶段推进到进度 p
       if (stages[stageIdx].tick) stages[stageIdx].tick(clamp01(p));
     },
