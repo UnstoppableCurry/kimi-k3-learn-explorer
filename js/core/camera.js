@@ -24,7 +24,7 @@ window.CORE_CAMERA = {
   DAMP: 8,          // 阻尼系数（越大越跟手）
   MIN_R: 2, MAX_R: 90,
   MIN_PHI: 0.08, MAX_PHI: Math.PI - 0.08,
-  MOVE_SPEED: 8,    // WASD 移动速度（单位/秒）
+  MOVE_SPEED: 2,    // WASD 移动速度（单位/秒）
   _keys: {},        // 当前按下的键
 
   init: function (opts) {
@@ -86,6 +86,15 @@ window.CORE_CAMERA = {
     }, { passive: false });
 
     dom.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+    // WASD + QE 键盘控制
+    window.addEventListener('keydown', function (e) {
+      if (!self._enabled) return;
+      self._keys[e.key.toLowerCase()] = true;
+    });
+    window.addEventListener('keyup', function (e) {
+      self._keys[e.key.toLowerCase()] = false;
+    });
   },
 
   /** 平滑飞到某个目标点。target: THREE.Vector3 或 {x,y,z} */
@@ -122,6 +131,33 @@ window.CORE_CAMERA = {
 
   update: function (delta) {
     if (!this.camera) return;
+
+    // WASD + QE 键盘移动
+    var keys = this._keys;
+    if (keys['w'] || keys['s'] || keys['a'] || keys['d'] || keys['q'] || keys['e']) {
+      var g = this._goal;
+      var speed = this.MOVE_SPEED * delta;
+      var forward = new THREE.Vector3();
+      var right = new THREE.Vector3();
+      var up = new THREE.Vector3(0, 1, 0);
+
+      // 计算相机朝向
+      this.camera.getWorldDirection(forward);
+      right.crossVectors(forward, up).normalize();
+
+      // W/S: 前进/后退
+      if (keys['w']) { g.tx += forward.x * speed; g.ty += forward.y * speed; g.tz += forward.z * speed; }
+      if (keys['s']) { g.tx -= forward.x * speed; g.ty -= forward.y * speed; g.tz -= forward.z * speed; }
+
+      // A/D: 左移/右移
+      if (keys['a']) { g.tx -= right.x * speed; g.tz -= right.z * speed; }
+      if (keys['d']) { g.tx += right.x * speed; g.tz += right.z * speed; }
+
+      // Q/E: 上升/下降
+      if (keys['q']) { g.ty += speed; }
+      if (keys['e']) { g.ty -= speed; }
+    }
+
     var k = 1 - Math.exp(-this.DAMP * delta); // 帧率无关阻尼
     var c = this._cur, g = this._goal;
     c.theta  += (g.theta  - c.theta)  * k;
