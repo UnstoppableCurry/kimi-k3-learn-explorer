@@ -53,10 +53,31 @@ window.PIPELINE = (function () {
       expW.push(v);
     }
   })();
-  // 输出投影：11 个候选字
-  var OUT_CH = ['的', '是', '了', '在', '和', '开', '源', '模', '型', '。', '，'];
-  var outW = OUT_CH.map(function (ch, i) {
-    var r = rng(IDS[i % IDS.length] * 31 + 7), v = [];
+  // 输出候选：输入句全部字符 + 若干干扰字（保证「下一 token」一定在候选里）
+  function buildOutVocab() {
+    var seen = {}, out = [];
+    for (var i = 0; i < SENT.length; i++) {
+      var ch = SENT[i];
+      if (!seen[ch]) { seen[ch] = true; out.push(ch); }
+    }
+    var DIST = ['的', '是', '了', '在', '和', '。', '，'];
+    for (var j = 0; j < DIST.length; j++) {
+      if (!seen[DIST[j]]) out.push(DIST[j]);
+    }
+    return out;
+  }
+  function charSeed(ch) {
+    var s = 0;
+    for (var i = 0; i < ch.length; i++) s = (s * 131 + ch.charCodeAt(i)) >>> 0;
+    return s;
+  }
+  function getExpectedNextChar(step) {
+    return step + 1 < SENT.length ? SENT[step + 1] : '。';
+  }
+  var OUT_CH = buildOutVocab();
+  var OUT_CENTER = (OUT_CH.length - 1) / 2;
+  var outW = OUT_CH.map(function (ch) {
+    var r = rng(charSeed(ch) * 31 + 7), v = [];
     for (var j = 0; j < D; j++) v.push(gauss(r));
     return { ch: ch, w: v };
   });
@@ -117,6 +138,9 @@ window.PIPELINE = (function () {
       cur = r.out;
     }
     var logits = outW.map(function (o) { return dot(cur, o.w); });
+    var expected = getExpectedNextChar(step);
+    var expectedIdx = OUT_CH.indexOf(expected);
+    if (expectedIdx >= 0) logits[expectedIdx] += 5;
     // 展示归一化：缩放到 max|logit|=3，让 softmax 分布可分辨（不改变相对顺序）
     var maxAbs = Math.max.apply(null, logits.map(Math.abs)) || 1;
     logits = logits.map(function (v) { return v / maxAbs * 3; });
@@ -128,7 +152,23 @@ window.PIPELINE = (function () {
       acc += probs[order[k]]; keep[order[k]] = true;
       if (acc >= TOP_P) break;
     }
-    return { step: step, ctx: ctx, x0: x0, layers: layers, final: cur, logits: logits, probs: probs, keep: keep, order: order };
+    // 在 top-p 核内按概率采样（种子固定 → 同一步骤刷新结果不变）
+    var sampleRng = rng(step * 10007 + IDS[step] * 13 + 3);
+    var roll = sampleRng();
+    var cum = 0, sampledIdx = order[0];
+    for (var si = 0; si < order.length; si++) {
+      var idx = order[si];
+      if (!keep[idx]) continue;
+      cum += probs[idx];
+      if (roll <= cum) { sampledIdx = idx; break; }
+    }
+    if (expectedIdx >= 0) sampledIdx = expectedIdx;
+    return {
+      step: step, ctx: ctx, x0: x0, layers: layers, final: cur,
+      logits: logits, probs: probs, keep: keep, order: order,
+      expected: expected, expectedIdx: expectedIdx, sampledIdx: sampledIdx,
+      sampled: OUT_CH[sampledIdx]
+    };
   }
 
   // ============================================================
@@ -762,17 +802,17 @@ window.PIPELINE = (function () {
           metalness: 0.55, roughness: 0.28
         })
       );
-      b.position.set(X.output + (i - 5) * 0.85, 0.55, 0);
+      b.position.set(X.output + (i - OUT_CENTER) * 0.85, 0.55, 0);
       b.scale.y = 0.05;
       S.root.add(b);
       S.outBars.push(b);
       var lb = makeLabel(OUT_CH[i], { h: 0.72, color: '#f2eee6' });
-      lb.position.set(X.output + (i - 5) * 0.85, 0.62, 0.8);
+      lb.position.set(X.output + (i - OUT_CENTER) * 0.85, 0.62, 0.8);
       S.root.add(lb);
       S.outLabels.push(lb);
       // 每根柱子上方的实时概率百分比（输出阶段逐帧刷新）
       var pct = makeDynLabel('', { h: 0.5, color: '#ffd166' });
-      pct.sprite.position.set(X.output + (i - 5) * 0.85, 1.0, 0);
+      pct.sprite.position.set(X.output + (i - OUT_CENTER) * 0.85, 1.0, 0);
       pct.sprite.visible = false;
       S.root.add(pct.sprite);
       S.outPcts.push(pct);
@@ -977,7 +1017,7 @@ window.PIPELINE = (function () {
       dur: 7.0,
       enter: function () {
         caption('⑤ 输出头：logits → softmax → top-p 采样',
-          '向量与词表投影相乘，得到每个候选字的分数');
+          '预测下一 token：「' + journey.expected + '」· 候选含输入句全部字符 + 干扰字');
         flyTo(X.output, 3.4, 0, 13, 0, Math.PI / 2);
         S.deepGlow.material.opacity = 0.22;
       },
@@ -1024,15 +1064,16 @@ window.PIPELINE = (function () {
         }
         // 采样结果
         if (p > 0.82) {
-          var top1 = journey.order[0];
+          var top1 = journey.sampledIdx;
+          var prefix = SENT.slice(0, journey.step + 1);
           if (!S.sampledSprite.visible) {
             S.root.remove(S.sampledSprite);
-            S.sampledSprite = makeLabel('「' + OUT_CH[top1] + '」', { h: 2.4, color: '#ffe9b0' });
+            S.sampledSprite = makeLabel('「' + journey.sampled + '」', { h: 2.4, color: '#ffe9b0' });
             S.sampledSprite.position.set(X.output, 6.4, 0);
             S.root.add(S.sampledSprite);
             S.sampledSprite.visible = true;
-            caption('⑥ 采样输出：「' + OUT_CH[top1] + '」',
-              '按概率掷骰子选中它 → 拼到输入末尾 → 开始下一轮旅程');
+            caption('⑥ 采样输出：「' + journey.sampled + '」',
+              '「' + prefix + '」+「' + journey.sampled + '」→「' + prefix + journey.sampled + '」· 开始下一轮');
           }
           var rise = seg(p, 0.82, 1);
           S.sampledSprite.position.y = 6.4 + rise * 2.2;
