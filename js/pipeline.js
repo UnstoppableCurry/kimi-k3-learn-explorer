@@ -60,18 +60,18 @@ window.PIPELINE = (function () {
       expW.push(v);
     }
   })();
-  // 输出候选：输入句全部字符 + 若干干扰字（保证「下一 token」一定在候选里）
-  function buildOutVocab() {
-    var seen = {}, out = [];
-    for (var i = 0; i < SENT.length; i++) {
-      var ch = SENT[i];
-      if (!seen[ch]) { seen[ch] = true; out.push(ch); }
+  // 输出候选：每步只展示 9 个「下一 token」竞争者（正确答案 + 干扰字）
+  var MAX_OUT = 9;
+  var OUT_SP = 0.85;
+  var OUT_CENTER = (MAX_OUT - 1) / 2;
+  var outWCache = {};
+  function getOutWeight(ch) {
+    if (!outWCache[ch]) {
+      var r = rng(charSeed(ch) * 31 + 7), v = [];
+      for (var j = 0; j < D; j++) v.push(gauss(r));
+      outWCache[ch] = { ch: ch, w: v };
     }
-    var DIST = ['的', '是', '了', '在', '和', '。', '，'];
-    for (var j = 0; j < DIST.length; j++) {
-      if (!seen[DIST[j]]) out.push(DIST[j]);
-    }
-    return out;
+    return outWCache[ch];
   }
   function charSeed(ch) {
     var s = 0;
@@ -81,13 +81,16 @@ window.PIPELINE = (function () {
   function getExpectedNextChar(step) {
     return step + 1 < SENT.length ? SENT[step + 1] : '。';
   }
-  var OUT_CH = buildOutVocab();
-  var OUT_CENTER = (OUT_CH.length - 1) / 2;
-  var outW = OUT_CH.map(function (ch) {
-    var r = rng(charSeed(ch) * 31 + 7), v = [];
-    for (var j = 0; j < D; j++) v.push(gauss(r));
-    return { ch: ch, w: v };
-  });
+  function buildStepOutVocab(step) {
+    var expected = getExpectedNextChar(step);
+    var seen = {}, out = [expected];
+    seen[expected] = true;
+    var DIST = ['的', '是', '了', '在', '和', '开', '源', '模', '型', '。', '，'];
+    for (var i = 0; i < DIST.length && out.length < MAX_OUT; i++) {
+      if (!seen[DIST[i]]) { seen[DIST[i]] = true; out.push(DIST[i]); }
+    }
+    return out;
+  }
 
   function dot(a, b) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
   function softmax(z) {
@@ -144,9 +147,11 @@ window.PIPELINE = (function () {
       layers.push(r);
       cur = r.out;
     }
+    var outCh = buildStepOutVocab(step);
+    var outW = outCh.map(getOutWeight);
     var logits = outW.map(function (o) { return dot(cur, o.w); });
     var expected = getExpectedNextChar(step);
-    var expectedIdx = OUT_CH.indexOf(expected);
+    var expectedIdx = outCh.indexOf(expected);
     if (expectedIdx >= 0) logits[expectedIdx] += 5;
     // 展示归一化：缩放到 max|logit|=3，让 softmax 分布可分辨（不改变相对顺序）
     var maxAbs = Math.max.apply(null, logits.map(Math.abs)) || 1;
@@ -174,7 +179,7 @@ window.PIPELINE = (function () {
       step: step, ctx: ctx, x0: x0, layers: layers, final: cur,
       logits: logits, probs: probs, keep: keep, order: order,
       expected: expected, expectedIdx: expectedIdx, sampledIdx: sampledIdx,
-      sampled: OUT_CH[sampledIdx]
+      sampled: outCh[sampledIdx], outCh: outCh
     };
   }
 
@@ -794,14 +799,34 @@ window.PIPELINE = (function () {
     S.root.add(lb);
   }
 
+  function refreshOutputLabels(outCh) {
+    S.outLabels.forEach(function (lb) { S.root.remove(lb); });
+    S.outLabels = [];
+    for (var i = 0; i < MAX_OUT; i++) {
+      var active = i < outCh.length;
+      S.outBars[i].visible = active;
+      S.outPcts[i].sprite.visible = false;
+      if (!active) continue;
+      var x = X.output + (i - OUT_CENTER) * OUT_SP;
+      S.outBars[i].position.x = x;
+      S.outBars[i].position.y = 0.3;
+      S.outBars[i].scale.y = 0.05;
+      S.outPcts[i].sprite.position.x = x;
+      var lb = makeLabel(outCh[i], { h: 0.72, color: '#f2eee6' });
+      lb.position.set(x, 0.62, 0.8);
+      S.root.add(lb);
+      S.outLabels.push(lb);
+    }
+  }
+
   function buildOutput() {
     addTitle('⑤ 输出头 → 采样', X.output, 6.4, ACCENT.out);
     S.bases.push(buildStationBase(X.output, 11.2, 3.6, 0x8f6a14, ACCENT.out, '输出 · 概率分布采样'));
     var pl = new THREE.PointLight(0xffd166, 0.6, 14);
     pl.position.set(X.output, 6.0, 2.5);
     S.root.add(pl);
-    // 11 个候选字的概率柱：金色金属材质
-    for (var i = 0; i < OUT_CH.length; i++) {
+    for (var i = 0; i < MAX_OUT; i++) {
+      var x = X.output + (i - OUT_CENTER) * OUT_SP;
       var b = new THREE.Mesh(
         new THREE.BoxGeometry(0.5, 1, 0.5),
         new THREE.MeshStandardMaterial({
@@ -809,17 +834,12 @@ window.PIPELINE = (function () {
           metalness: 0.55, roughness: 0.28
         })
       );
-      b.position.set(X.output + (i - OUT_CENTER) * 0.85, 0.55, 0);
+      b.position.set(x, 0.55, 0);
       b.scale.y = 0.05;
       S.root.add(b);
       S.outBars.push(b);
-      var lb = makeLabel(OUT_CH[i], { h: 0.72, color: '#f2eee6' });
-      lb.position.set(X.output + (i - OUT_CENTER) * 0.85, 0.62, 0.8);
-      S.root.add(lb);
-      S.outLabels.push(lb);
-      // 每根柱子上方的实时概率百分比（输出阶段逐帧刷新）
       var pct = makeDynLabel('', { h: 0.5, color: '#ffd166' });
-      pct.sprite.position.set(X.output + (i - OUT_CENTER) * 0.85, 1.0, 0);
+      pct.sprite.position.set(x, 1.0, 0);
       pct.sprite.visible = false;
       S.root.add(pct.sprite);
       S.outPcts.push(pct);
@@ -1024,7 +1044,7 @@ window.PIPELINE = (function () {
       dur: 7.0,
       enter: function () {
         caption('⑤ 输出头：logits → softmax → top-p 采样',
-          '预测下一 token：「' + journey.expected + '」· 候选含输入句全部字符 + 干扰字');
+          '预测下一 token「' + journey.expected + '」· 9 个候选字竞争');
         flyTo(X.output, 3.4, 0, 13, 0, Math.PI / 2);
         S.deepGlow.material.opacity = 0.22;
       },
@@ -1039,7 +1059,7 @@ window.PIPELINE = (function () {
         // softmax 概率
         var pp = ease(seg(p, 0.5, 0.8));
         var maxP = Math.max.apply(null, journey.probs);
-        for (var i = 0; i < S.outBars.length; i++) {
+        for (var i = 0; i < journey.outCh.length; i++) {
           var hl = journey.logits[i] / maxL * 2.2 * pl;
           var hp = journey.probs[i] / maxP * 3.2 * pp;
           var h = pl < 1 || pp === 0 ? hl : hl + (hp - hl) * pp;
@@ -1066,8 +1086,8 @@ window.PIPELINE = (function () {
           S._outCaptioned = true;
           var o = journey.order;
           caption('⑤ softmax 概率 → top-p=' + TOP_P + ' 核采样',
-            '「' + OUT_CH[o[0]] + '」' + (journey.probs[o[0]] * 100).toFixed(1) + '% · 「' +
-            OUT_CH[o[1]] + '」' + (journey.probs[o[1]] * 100).toFixed(1) + '% · 灰色 = 核外被截断');
+            '「' + journey.outCh[o[0]] + '」' + (journey.probs[o[0]] * 100).toFixed(1) + '% · 「' +
+            journey.outCh[o[1]] + '」' + (journey.probs[o[1]] * 100).toFixed(1) + '% · 灰色 = 核外被截断');
         }
         // 采样结果
         if (p > 0.82) {
@@ -1214,6 +1234,7 @@ window.PIPELINE = (function () {
     S.tokenLabel = makeLabel(SENT[step], { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
     S.tokenLabel.position.set(0, 1.6, 0);
     S.tokenG.add(S.tokenLabel);
+    refreshOutputLabels(journey.outCh);
     S.charTiles.forEach(function (t) { t.scale.setScalar(0.001); });
     S.idTiles.forEach(function (t) { t.scale.setScalar(0.001); });
     S.outBars.forEach(function (b) { b.scale.y = 0.05; b.position.y = 0.3; });
