@@ -29,8 +29,15 @@ window.PIPELINE = (function () {
   }
   function gauss(r) { return (r() + r() + r() + r() - 2) * 1.2; }
 
-  var SENT = '月之暗面发布K3';
-  var IDS = [48213, 20047, 5531, 39196, 8873, 610, 74, 102931];
+  var SENT = '月之暗面发布了k3开源大模型';
+  function tokenId(ch, i) {
+    var s = 0;
+    for (var j = 0; j < ch.length; j++) s = (s * 131 + ch.charCodeAt(j)) >>> 0;
+    return (s * 997 + i * 7919) % 150000 + 1000;
+  }
+  var IDS = SENT.split('').map(function (ch, i) { return tokenId(ch, i); });
+  var SENT_CENTER = (SENT.length - 1) / 2;
+  var TILE_SP = Math.min(1.08, 9.2 / SENT.length);
   var D = 8, EXPERTS = 896, TOPK = 16, LAYERS_SHOWN = 4, LAYERS_TOTAL = 61;
   var TEMP = 1.0, TOP_P = 0.95;
 
@@ -412,7 +419,7 @@ window.PIPELINE = (function () {
     S.root.add(pl);
     for (var i = 0; i < SENT.length; i++) {
       var t = makeTile(SENT[i]);
-      t.position.set(X.input + (i - 3.5) * 1.08, PATH_Y + 1.2, 0);
+      t.position.set(X.input + (i - SENT_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
       t.scale.setScalar(0.001); // 入场时弹出
       S.root.add(t);
       S.charTiles.push(t);
@@ -427,7 +434,7 @@ window.PIPELINE = (function () {
     S.root.add(pl);
     for (var i = 0; i < IDS.length; i++) {
       var t = makeTile(String(IDS[i]), { small: true, color: '#ffd9a0' });
-      t.position.set(X.tokenizer + (i - 3.5) * 1.08, PATH_Y + 1.2, 0);
+      t.position.set(X.tokenizer + (i - SENT_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
       t.scale.setScalar(0.001);
       S.root.add(t);
       S.idTiles.push(t);
@@ -453,10 +460,10 @@ window.PIPELINE = (function () {
     for (var i = 0; i < IDS.length; i++) {
       var vg = makeVectorGroup(0.5, PAL.embed);
       setVectorValues(vg, embed(IDS[i]));
-      vg.group.position.set(X.embed + (i - 3.5) * 0.9, PATH_Y, 1.6);
+      vg.group.position.set(X.embed + (i - SENT_CENTER) * TILE_SP * 0.85, PATH_Y, 1.6);
       S.root.add(vg.group);
       var ch = makeLabel(SENT[i], { h: 0.5, color: '#d8b98a' });
-      ch.position.set(X.embed + (i - 3.5) * 0.9, PATH_Y + 1.1, 1.6);
+      ch.position.set(X.embed + (i - SENT_CENTER) * TILE_SP * 0.85, PATH_Y + 1.1, 1.6);
       S.root.add(ch);
     }
   }
@@ -830,7 +837,7 @@ window.PIPELINE = (function () {
     S.tokenVg = vg; S.tokenG = vg.group;
     S.tokenG.position.set(X.embed, PATH_Y, 0);
     S.root.add(S.tokenG);
-    var lb = makeLabel('K', { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
+    var lb = makeLabel('k', { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
     lb.position.set(0, 1.6, 0);
     S.tokenG.add(lb);
     S.tokenLabel = lb;
@@ -953,7 +960,7 @@ window.PIPELINE = (function () {
     { // 1 输入
       dur: 3.5,
       enter: function () {
-        caption('① 输入：「' + SENT + '」', '8 个字符进入网络');
+        caption('① 输入：「' + SENT + '」', SENT.length + ' 个字符进入网络');
         flyTo(X.input, 3, 0, 10, 0, Math.PI / 2);
       },
       tick: function (p) {
@@ -1218,7 +1225,7 @@ window.PIPELINE = (function () {
     enterStage(0);
   }
 
-  var curStep = 6; // 主角从「K」开始（前面有 7 个上下文 token）
+  var curStep = 7; // 主角从「k」开始，预测下一 token「3」
 
   function update(delta) {
     clock += delta;

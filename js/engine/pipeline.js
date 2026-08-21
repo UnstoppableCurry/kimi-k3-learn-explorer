@@ -149,7 +149,7 @@ window.PIPELINE_VERSION = 'v2-timeline';
       var s = S();
       var fx = s._fx.tokens;
       if (!fx) return;
-      var sentence = '月之暗面发布 Kimi K3';
+      var sentence = '月之暗面发布了k3开源大模型';
       var full = textSprite(sentence, 52, '#e8dcc8', 12, 3);
       full.position.set(0, 4.6, 0);
       s.tower.add(full);

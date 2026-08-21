@@ -21,8 +21,13 @@ window.ENGINE = window.ENGINE || {};
   function gauss(r) { return (r() + r() + r() + r() - 2) * 1.2; }
 
   // ---------- 词表与输入 ----------
-  var SENT = '月之暗面发布K3';
-  var IDS = [48213, 20047, 5531, 39196, 8873, 610, 74, 102931];
+  var SENT = '月之暗面发布了k3开源大模型';
+  function tokenId(ch, i) {
+    var s = 0;
+    for (var j = 0; j < ch.length; j++) s = (s * 131 + ch.charCodeAt(j)) >>> 0;
+    return (s * 997 + i * 7919) % 150000 + 1000;
+  }
+  var IDS = SENT.split('').map(function (ch, i) { return tokenId(ch, i); });
   var D = 8, EXPERTS = 896, TOPK = 16;
 
   // 预生成：embedding 表（按 id 种子）、896 专家权重向量、输出投影
