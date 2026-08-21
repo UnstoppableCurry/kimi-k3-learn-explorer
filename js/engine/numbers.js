@@ -21,13 +21,16 @@ window.ENGINE = window.ENGINE || {};
   function gauss(r) { return (r() + r() + r() + r() - 2) * 1.2; }
 
   // ---------- 词表与输入 ----------
-  var SENT = '月之暗面发布了k3开源大模型';
-  function tokenId(ch, i) {
+  var INPUT_TEXT = '月之暗面发布了k3';
+  var OUTPUT_TOKEN = '大模型';
+  var SENT = INPUT_TEXT;
+  var TOKENS = ['月', '之', '暗', '面', '发', '布', '了', 'k', '3'];
+  function tokenId(text, i) {
     var s = 0;
-    for (var j = 0; j < ch.length; j++) s = (s * 131 + ch.charCodeAt(j)) >>> 0;
+    for (var j = 0; j < text.length; j++) s = (s * 131 + text.charCodeAt(j)) >>> 0;
     return (s * 997 + i * 7919) % 150000 + 1000;
   }
-  var IDS = SENT.split('').map(function (ch, i) { return tokenId(ch, i); });
+  var IDS = TOKENS.map(function (t, i) { return tokenId(t, i); });
   var D = 8, EXPERTS = 896, TOPK = 16;
 
   // 预生成：embedding 表（按 id 种子）、896 专家权重向量、输出投影

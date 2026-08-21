@@ -29,15 +29,18 @@ window.PIPELINE = (function () {
   }
   function gauss(r) { return (r() + r() + r() + r() - 2) * 1.2; }
 
-  var SENT = '月之暗面发布了k3开源大模型';
-  function tokenId(ch, i) {
+  var INPUT_TEXT = '月之暗面发布了k3';
+  var OUTPUT_TOKEN = '大模型';
+  var RESULT_TEXT = INPUT_TEXT + OUTPUT_TOKEN;
+  var TOKENS = ['月', '之', '暗', '面', '发', '布', '了', 'k', '3'];
+  function tokenId(text, i) {
     var s = 0;
-    for (var j = 0; j < ch.length; j++) s = (s * 131 + ch.charCodeAt(j)) >>> 0;
+    for (var j = 0; j < text.length; j++) s = (s * 131 + text.charCodeAt(j)) >>> 0;
     return (s * 997 + i * 7919) % 150000 + 1000;
   }
-  var IDS = SENT.split('').map(function (ch, i) { return tokenId(ch, i); });
-  var SENT_CENTER = (SENT.length - 1) / 2;
-  var TILE_SP = Math.min(1.08, 9.2 / SENT.length);
+  var IDS = TOKENS.map(function (t, i) { return tokenId(t, i); });
+  var TOKEN_CENTER = (TOKENS.length - 1) / 2;
+  var TILE_SP = Math.min(1.08, 9.2 / TOKENS.length);
   var D = 8, EXPERTS = 896, TOPK = 16, LAYERS_SHOWN = 4, LAYERS_TOTAL = 61;
   var TEMP = 1.0, TOP_P = 0.95;
 
@@ -60,10 +63,12 @@ window.PIPELINE = (function () {
       expW.push(v);
     }
   })();
-  // 输出候选：每步只展示 9 个「下一 token」竞争者（正确答案 + 干扰字）
-  var MAX_OUT = 9;
-  var OUT_SP = 0.85;
+  // 输出候选：最终一步预测 completion token（大模型）+ 语义相近干扰项
+  var MAX_OUT = 5;
+  var OUT_SP = 1.05;
   var OUT_CENTER = (MAX_OUT - 1) / 2;
+  var COMPLETION_CANDS = ['大模型', '开源', '模型', 'Kimi', '版本'];
+  var DEMO_STEP = TOKENS.length - 1; // 最后一个输入 token「3」→ 预测「大模型」
   var outWCache = {};
   function getOutWeight(ch) {
     if (!outWCache[ch]) {
@@ -78,18 +83,18 @@ window.PIPELINE = (function () {
     for (var i = 0; i < ch.length; i++) s = (s * 131 + ch.charCodeAt(i)) >>> 0;
     return s;
   }
-  function getExpectedNextChar(step) {
-    return step + 1 < SENT.length ? SENT[step + 1] : '。';
+  function getExpectedNextToken(step) {
+    if (step >= TOKENS.length - 1) return OUTPUT_TOKEN;
+    return TOKENS[step + 1];
   }
   function buildStepOutVocab(step) {
-    var expected = getExpectedNextChar(step);
-    var seen = {}, out = [expected];
-    seen[expected] = true;
-    var DIST = ['的', '是', '了', '在', '和', '开', '源', '模', '型', '。', '，'];
-    for (var i = 0; i < DIST.length && out.length < MAX_OUT; i++) {
-      if (!seen[DIST[i]]) { seen[DIST[i]] = true; out.push(DIST[i]); }
-    }
-    return out;
+    if (step >= TOKENS.length - 1) return COMPLETION_CANDS.slice();
+    var expected = TOKENS[step + 1];
+    return [expected, '开源', '模型', 'Kimi', '版本'];
+  }
+  function inputPrefix(step) {
+    if (step >= TOKENS.length - 1) return INPUT_TEXT;
+    return TOKENS.slice(0, step + 1).join('');
   }
 
   function dot(a, b) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
@@ -137,7 +142,7 @@ window.PIPELINE = (function () {
     return { act: act, hid: hid, out: out };
   }
 
-  // 完整旅程：主角 token 是 SENT[step]，链式穿过 4 个展示层
+  // 完整旅程：主角 token 是 TOKENS[step]，链式穿过 4 个展示层
   function computeJourney(step) {
     var ctx = IDS.slice(0, step + 1).map(embed);
     var layers = [], cur = embed(IDS[step]);
@@ -150,7 +155,7 @@ window.PIPELINE = (function () {
     var outCh = buildStepOutVocab(step);
     var outW = outCh.map(getOutWeight);
     var logits = outW.map(function (o) { return dot(cur, o.w); });
-    var expected = getExpectedNextChar(step);
+    var expected = getExpectedNextToken(step);
     var expectedIdx = outCh.indexOf(expected);
     if (expectedIdx >= 0) logits[expectedIdx] += 5;
     // 展示归一化：缩放到 max|logit|=3，让 softmax 分布可分辨（不改变相对顺序）
@@ -422,9 +427,9 @@ window.PIPELINE = (function () {
     var pl = new THREE.PointLight(0xffc46b, 0.6, 12);
     pl.position.set(X.input, 5.0, 2.0);
     S.root.add(pl);
-    for (var i = 0; i < SENT.length; i++) {
-      var t = makeTile(SENT[i]);
-      t.position.set(X.input + (i - SENT_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
+    for (var i = 0; i < TOKENS.length; i++) {
+      var t = makeTile(TOKENS[i]);
+      t.position.set(X.input + (i - TOKEN_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
       t.scale.setScalar(0.001); // 入场时弹出
       S.root.add(t);
       S.charTiles.push(t);
@@ -439,7 +444,7 @@ window.PIPELINE = (function () {
     S.root.add(pl);
     for (var i = 0; i < IDS.length; i++) {
       var t = makeTile(String(IDS[i]), { small: true, color: '#ffd9a0' });
-      t.position.set(X.tokenizer + (i - SENT_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
+      t.position.set(X.tokenizer + (i - TOKEN_CENTER) * TILE_SP, PATH_Y + 1.2, 0);
       t.scale.setScalar(0.001);
       S.root.add(t);
       S.idTiles.push(t);
@@ -465,10 +470,10 @@ window.PIPELINE = (function () {
     for (var i = 0; i < IDS.length; i++) {
       var vg = makeVectorGroup(0.5, PAL.embed);
       setVectorValues(vg, embed(IDS[i]));
-      vg.group.position.set(X.embed + (i - SENT_CENTER) * TILE_SP * 0.85, PATH_Y, 1.6);
+      vg.group.position.set(X.embed + (i - TOKEN_CENTER) * TILE_SP * 0.85, PATH_Y, 1.6);
       S.root.add(vg.group);
-      var ch = makeLabel(SENT[i], { h: 0.5, color: '#d8b98a' });
-      ch.position.set(X.embed + (i - SENT_CENTER) * TILE_SP * 0.85, PATH_Y + 1.1, 1.6);
+      var ch = makeLabel(TOKENS[i], { h: 0.5, color: '#d8b98a' });
+      ch.position.set(X.embed + (i - TOKEN_CENTER) * TILE_SP * 0.85, PATH_Y + 1.1, 1.6);
       S.root.add(ch);
     }
   }
@@ -812,7 +817,7 @@ window.PIPELINE = (function () {
       S.outBars[i].position.y = 0.3;
       S.outBars[i].scale.y = 0.05;
       S.outPcts[i].sprite.position.x = x;
-      var lb = makeLabel(outCh[i], { h: 0.72, color: '#f2eee6' });
+      var lb = makeLabel(outCh[i], { h: 0.72, fontSize: outCh[i].length > 1 ? 34 : 44, color: '#f2eee6' });
       lb.position.set(x, 0.62, 0.8);
       S.root.add(lb);
       S.outLabels.push(lb);
@@ -857,7 +862,7 @@ window.PIPELINE = (function () {
     S.tokenVg = vg; S.tokenG = vg.group;
     S.tokenG.position.set(X.embed, PATH_Y, 0);
     S.root.add(S.tokenG);
-    var lb = makeLabel('k', { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
+    var lb = makeLabel('3', { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
     lb.position.set(0, 1.6, 0);
     S.tokenG.add(lb);
     S.tokenLabel = lb;
@@ -971,8 +976,8 @@ window.PIPELINE = (function () {
     { // 0 全景
       dur: 4.0,
       enter: function () {
-        caption('Kimi K3：一个 token 的完整旅程',
-          '输入 → 分词 → Embedding → 61 层（此处展示 4 层，每层内含注意力 + MoE 完整结构）→ 输出 · d=8 教学维度，数字全部为真实前向计算');
+        caption('Kimi K3：输入 → 补全',
+          '输入「' + INPUT_TEXT + '」→ 模型预测下一 token → 输出「' + RESULT_TEXT + '」');
         flyTo(12, 2.5, 0, 54, 0, Math.PI / 2);
       },
       tick: function () {}
@@ -980,7 +985,7 @@ window.PIPELINE = (function () {
     { // 1 输入
       dur: 3.5,
       enter: function () {
-        caption('① 输入：「' + SENT + '」', SENT.length + ' 个字符进入网络');
+        caption('① 输入：「' + INPUT_TEXT + '」', TOKENS.length + ' 个 token 进入网络');
         flyTo(X.input, 3, 0, 10, 0, Math.PI / 2);
       },
       tick: function (p) {
@@ -994,7 +999,7 @@ window.PIPELINE = (function () {
       dur: 4.0,
       enter: function () {
         caption('② 分词：字符 → token id',
-          '「' + SENT[journey.step] + '」= id ' + IDS[journey.step] + '（词表 16 万中查到的编号）');
+          '「' + TOKENS[journey.step] + '」= id ' + IDS[journey.step] + '（词表 16 万中查到的编号）');
         flyTo(X.tokenizer, 3, 0, 10, 0, Math.PI / 2);
       },
       tick: function (p) {
@@ -1009,7 +1014,7 @@ window.PIPELINE = (function () {
       enter: function () {
         var x = journey.x0;
         caption('③ Embedding 查表：id ' + IDS[journey.step] + ' → 8 维向量',
-          'E[' + IDS[journey.step] + '] = ' + vecShort(x, 4) + ' · 主角 token「' + SENT[journey.step] + '」获得向量本体');
+          'E[' + IDS[journey.step] + '] = ' + vecShort(x, 4) + ' · 主角 token「' + TOKENS[journey.step] + '」获得向量本体');
         flyTo(X.embed, 3, 0.6, 11, 0, Math.PI / 2);
         setEmbedBoard([
           { t: 'E[' + IDS[journey.step] + '] =（查表命中）', c: ACCENT.dim },
@@ -1044,7 +1049,7 @@ window.PIPELINE = (function () {
       dur: 7.0,
       enter: function () {
         caption('⑤ 输出头：logits → softmax → top-p 采样',
-          '预测下一 token「' + journey.expected + '」· 9 个候选字竞争');
+          '在「' + INPUT_TEXT + '」后预测下一 token · 正确答案「' + OUTPUT_TOKEN + '」');
         flyTo(X.output, 3.4, 0, 13, 0, Math.PI / 2);
         S.deepGlow.material.opacity = 0.22;
       },
@@ -1091,16 +1096,14 @@ window.PIPELINE = (function () {
         }
         // 采样结果
         if (p > 0.82) {
-          var top1 = journey.sampledIdx;
-          var prefix = SENT.slice(0, journey.step + 1);
           if (!S.sampledSprite.visible) {
             S.root.remove(S.sampledSprite);
-            S.sampledSprite = makeLabel('「' + journey.sampled + '」', { h: 2.4, color: '#ffe9b0' });
+            S.sampledSprite = makeLabel('「' + journey.sampled + '」', { h: 2.0, fontSize: 52, color: '#ffe9b0' });
             S.sampledSprite.position.set(X.output, 6.4, 0);
             S.root.add(S.sampledSprite);
             S.sampledSprite.visible = true;
             caption('⑥ 采样输出：「' + journey.sampled + '」',
-              '「' + prefix + '」+「' + journey.sampled + '」→「' + prefix + journey.sampled + '」· 开始下一轮');
+              '输入「' + INPUT_TEXT + '」→ 输出「' + RESULT_TEXT + '」');
           }
           var rise = seg(p, 0.82, 1);
           S.sampledSprite.position.y = 6.4 + rise * 2.2;
@@ -1124,7 +1127,7 @@ window.PIPELINE = (function () {
         for (var i = 1; i < ld.attn.length; i++) if (ld.attn[i] > ld.attn[best]) best = i;
         caption(
           'Layer ' + (l + 1) + '/' + LAYERS_TOTAL + '：注意力 → MoE → 残差',
-          '「' + SENT[journey.step] + '」最关注「' + SENT[best] + '」(' + ld.attn[best].toFixed(2) +
+          '「' + TOKENS[journey.step] + '」最关注「' + TOKENS[best] + '」(' + ld.attn[best].toFixed(2) +
           ') · 896 专家激活 16 个：#' + ld.top[0] + ' w=' + ld.w[0].toFixed(2) + '、#' +
           ld.top[1] + ' w=' + ld.w[1].toFixed(2) + ' …'
         );
@@ -1231,7 +1234,7 @@ window.PIPELINE = (function () {
     setVectorValues(S.tokenVg, journey.x0.map(function () { return 0.06; }));
     // token 顶上的字符牌
     S.tokenG.remove(S.tokenLabel);
-    S.tokenLabel = makeLabel(SENT[step], { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
+    S.tokenLabel = makeLabel(TOKENS[step], { h: 0.7, color: '#ffffff', bg: 'rgba(70,110,190,0.9)' });
     S.tokenLabel.position.set(0, 1.6, 0);
     S.tokenG.add(S.tokenLabel);
     refreshOutputLabels(journey.outCh);
@@ -1246,7 +1249,7 @@ window.PIPELINE = (function () {
     enterStage(0);
   }
 
-  var curStep = 7; // 主角从「k」开始，预测下一 token「3」
+  var curStep = DEMO_STEP; // 最后一个输入 token「3」→ 预测 completion「大模型」
 
   function update(delta) {
     clock += delta;
@@ -1258,9 +1261,6 @@ window.PIPELINE = (function () {
       if (stageT >= st.dur) {
         if (st.leave) st.leave();
         if (stageIdx + 1 >= stages.length) {
-          // 旅程结束：主角推进到下一个 token，循环
-          curStep = (curStep + 1) % IDS.length;
-          if (curStep === 0) curStep = 1; // 至少留 1 个上下文
           startJourney(curStep);
         } else {
           enterStage(stageIdx + 1);
@@ -1319,9 +1319,6 @@ window.PIPELINE = (function () {
     },
     next: function () {
       if (stageIdx + 1 >= stages.length) {
-        // 最后一步再「下一步」：推进到下一个 token 的新旅程
-        curStep = (curStep + 1) % IDS.length;
-        if (curStep === 0) curStep = 1;
         startJourney(curStep);
       } else {
         this.goTo(stageIdx + 1);
